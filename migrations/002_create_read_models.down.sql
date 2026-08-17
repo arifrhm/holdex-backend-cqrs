@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS price_history CASCADE;
+DROP TABLE IF EXISTS market_summaries CASCADE;

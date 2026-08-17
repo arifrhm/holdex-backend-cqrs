@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  PORT: "8080"
+  GRPC_PORT: "9090"
+  REDIS_ADDR: "redis:6379"
+  COINGECKO_POLL_INTERVAL: "60s"
+  LOG_LEVEL: "info"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secret
+type: Opaque
+data:
+  # Connection string: postgres://holdex_user:holdex_password@postgres:5432/holdex_db?sslmode=disable
+  # Base64 encoded: cG9zdGdyZXM6Ly9ob2xkZXhfdXNlcjpob2xkZXhfcGFzc3dvcmRAcG9zdGdyZXM6NTQzMi9ob2xkZXhfZGI/c3NsbW9kZT1kaXNhYmxl
+  DB_DSN: cG9zdGdyZXM6Ly9ob2xkZXhfdXNlcjpob2xkZXhfcGFzc3dvcmRAcG9zdGdyZXM6NTQzMi9ob2xkZXhfZGI/c3NsbW9kZT1kaXNhYmxl
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: holdex-app
+  labels:
+    app: holdex-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: holdex-app
+  template:
+    metadata:
+      labels:
+        app: holdex-app
+    spec:
+      initContainers:
+        - name: migrations
+          image: holdex-app:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/app/migrate", "up"]
+          env:
+            - name: DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: DB_DSN
+      containers:
+        - name: app
+          image: holdex-app:latest
+          imagePullPolicy: IfNotPresent # Crucial for using locally built images in k3s without pushing to registry!
+          envFrom:
+            - configMapRef:
+                name: app-config
+          env:
+            - name: DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: DB_DSN
+            - name: SKIP_MIGRATIONS
+              value: "true"
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9090
+              name: grpc
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: holdex-app
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+    - port: 9090
+      targetPort: 9090
+      name: grpc
+  selector:
+    app: holdex-app

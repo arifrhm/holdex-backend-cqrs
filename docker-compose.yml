@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: holdex_postgres
+    environment:
+      POSTGRES_USER: holdex_user
+      POSTGRES_PASSWORD: holdex_password
+      POSTGRES_DB: holdex_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U holdex_user -d holdex_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: holdex_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: holdex_app
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      - DB_DSN=postgres://holdex_user:holdex_password@postgres:5432/holdex_db?sslmode=disable
+      - DB_DSN_READ=postgres://holdex_user:holdex_password@postgres:5432/holdex_db?sslmode=disable
+      - REDIS_ADDR=redis:6379
+      - PORT=8080
+      - GRPC_PORT=9090
+      - COINGECKO_POLL_INTERVAL=60s
+      - LOG_LEVEL=info
+      - RATE_LIMIT_RPS=50.0
+      - RATE_LIMIT_BURST=10
+      - COINGECKO_API_KEY=
+      - COINGECKO_COINS=bitcoin,ethereum,cardano,solana,ripple
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

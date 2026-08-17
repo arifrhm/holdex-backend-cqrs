@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package market.v1;
+
+option go_package = "github.com/holdex/epic-fermi/api/grpc/proto";
+
+service MarketService {
+  rpc GetMarketSummaries(GetMarketSummariesRequest) returns (GetMarketSummariesResponse);
+  rpc GetMarketSummary(GetMarketSummaryRequest) returns (MarketSummary);
+  rpc GetPriceHistory(GetPriceHistoryRequest) returns (GetPriceHistoryResponse);
+  rpc StreamMarketUpdates(StreamMarketUpdatesRequest) returns (stream MarketSummary);
+}
+
+message MarketSummary {
+  string coin_id = 1;
+  string symbol = 2;
+  string name = 3;
+  double current_price = 4;
+  double market_cap = 5;
+  double volume_24h = 6;
+  double price_change_24h = 7;
+  string last_updated = 8;
+}
+
+message PricePoint {
+  double price = 1;
+  string recorded_at = 2;
+}
+
+message GetMarketSummariesRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message GetMarketSummariesResponse {
+  repeated MarketSummary summaries = 1;
+}
+
+message GetMarketSummaryRequest {
+  string coin_id = 1;
+}
+
+message GetPriceHistoryRequest {
+  string coin_id = 1;
+  int32 limit = 2;
+}
+
+message GetPriceHistoryResponse {
+  repeated PricePoint history = 1;
+}
+
+message StreamMarketUpdatesRequest {
+  string coin_id = 1;
+}

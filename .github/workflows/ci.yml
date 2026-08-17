@@ -1,0 +1,254 @@
+# .github/workflows/ci.yml
+# CI Pipeline: Menjalankan semua quality gates yang wajib untuk Go Project
+name: Production Quality Gate
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+# Hentikan workflow sebelumnya jika ada push baru di PR yang sama (hemat resource)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Prinsip least privilege
+permissions:
+  contents: read
+  pull-requests: write  # Untuk comment hasil scan
+
+env:
+  GO_VERSION: '1.23'
+  CI: true
+
+jobs:
+  # ==========================================
+  # JOB 1: LINTING & VALIDASI (Cepat, < 2 menit)
+  # ==========================================
+  lint:
+    name: Lint & Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.59.1
+          args: --timeout=5m
+
+      - name: Run Pre-commit hooks (enforce di CI)
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --show-diff-on-failure
+
+  # ==========================================
+  # JOB 2: TES UNIT (Paralel, dengan coverage)
+  # ==========================================
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint  # Hanya jalan jika lint pass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run unit tests with coverage
+        run: |
+          # Jalankan unit test saja (skipping integration tests by default jika database tidak terkoneksi)
+          # test/drift_test.go, store_test.go, dll akan diskip secara aman karena tidak ada DB
+          go test -v -race -coverprofile=coverage.out -covermode=atomic ./internal/aggregator/... ./internal/config/... ./pkg/logger/...
+
+      # Upload coverage untuk dashboard (opsional)
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ==========================================
+  # JOB 3: TES INTEGRASI (Dengan Database)
+  # ==========================================
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    # Setup service container untuk database
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: holdex_db
+          POSTGRES_USER: holdex_user
+          POSTGRES_PASSWORD: holdex_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 5s
+
+    env:
+      DB_DSN: postgres://holdex_user:holdex_password@localhost:5432/holdex_db?sslmode=disable
+      REDIS_ADDR: localhost:6379
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install Protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Run migrations
+        run: go run cmd/migrate/main.go up
+        env:
+          MIGRATIONS_DIR: migrations
+
+      - name: Run integration tests
+        run: go test -v -race ./internal/eventstore/... ./internal/projection/... ./api/grpc/...
+
+  # ==========================================
+  # JOB 4: KEAMANAN (Deteksi kerentanan)
+  # ==========================================
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      # 4a: Dependency vulnerability scan for Go (govulncheck)
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: ${{ env.GO_VERSION }}
+
+      # 4b: GitHub-native security scanning
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # ==========================================
+  # JOB 5: DETEKSI BREAKING CHANGE / DRIFT API
+  # ==========================================
+  api-drift-detection:
+    name: API Payload Drift Check
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: holdex_db
+          POSTGRES_USER: holdex_user
+          POSTGRES_PASSWORD: holdex_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 5s
+
+    env:
+      DB_DSN: postgres://holdex_user:holdex_password@localhost:5432/holdex_db?sslmode=disable
+      REDIS_ADDR: localhost:6379
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run migrations
+        run: go run cmd/migrate/main.go up
+        env:
+          MIGRATIONS_DIR: migrations
+
+      - name: Run drift detection tests
+        run: ./scripts/drift_check.sh
+
+  # ==========================================
+  # JOB 6: BUILD (Verifikasi aplikasi bisa dibuild)
+  # ==========================================
+  build:
+    name: Build & Package
+    runs-on: ubuntu-latest
+    needs: [test, integration-test, security-scan, api-drift-detection]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build production binary
+        run: CGO_ENABLED=0 GOOS=linux go build -v -o main ./cmd/server
+
+      # Simpan artifact untuk deployment
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: build-${{ github.sha }}
+          path: main
+          retention-days: 7
+
+  # ==========================================
+  # JOB 7: BRANCH PROTECTION CHECK (Wajib)
+  # ==========================================
+  all-checks-passed:
+    name: ✅ All Quality Checks Passed
+    runs-on: ubuntu-latest
+    needs: [lint, test, integration-test, security-scan, api-drift-detection, build]
+    if: always() && !cancelled()
+    steps:
+      - name: Check status
+        run: |
+          if [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.integration-test.result }}" != "success" ] || \
+             [ "${{ needs.security-scan.result }}" != "success" ] || \
+             [ "${{ needs.api-drift-detection.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ]; then
+            echo "❌ One or more required checks failed!"
+            exit 1
+          fi
+          echo "✅ All required checks passed!"

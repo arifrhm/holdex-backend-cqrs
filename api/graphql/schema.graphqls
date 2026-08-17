@@ -1,0 +1,26 @@
+type MarketSummary {
+  coinId: String!
+  symbol: String!
+  name: String!
+  currentPrice: Float!
+  marketCap: Float
+  volume24h: Float
+  priceChange24h: Float
+  lastUpdated: String!
+  priceHistory(limit: Int): [PricePoint!]!
+}
+
+type PricePoint {
+  price: Float!
+  recordedAt: String!
+}
+
+type Query {
+  marketSummaries(limit: Int, offset: Int): [MarketSummary!]!
+  marketSummary(coinId: String!): MarketSummary
+  priceHistory(coinId: String!, limit: Int): [PricePoint!]!
+}
+
+type Subscription {
+  marketPriceUpdated(coinId: String): MarketSummary!
+}

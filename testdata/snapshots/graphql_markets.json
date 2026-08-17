@@ -1,0 +1,25 @@
+{
+  "data": {
+    "marketSummaries": [
+      {
+        "coinId": "bitcoin",
+        "symbol": "btc",
+        "name": "Bitcoin",
+        "currentPrice": 65000,
+        "marketCap": 1300000000000,
+        "volume24h": 35000000000,
+        "priceChange24h": 2.1,
+        "priceHistory": [
+          {
+            "price": 65000,
+            "recordedAt": "2026-08-10T12:00:00Z"
+          },
+          {
+            "price": 64500,
+            "recordedAt": "2026-08-10T11:50:00Z"
+          }
+        ]
+      }
+    ]
+  }
+}

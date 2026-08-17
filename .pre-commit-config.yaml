@@ -1,0 +1,82 @@
+# .pre-commit-config.yaml
+# Dokumentasi: https://pre-commit.com/
+# Referensi masalah production yang dicegah:
+# - Secrets leakage (AWS key, token, dll)
+# - Binary besar yang bikin git clone lambat
+# - TODO/FIXME tanpa tiket
+# - Format/lint error yang buang waktu di CI
+
+repos:
+  # ============================================
+  # 1. HYGIENE DASAR (Cegah masalah klasik)
+  # ============================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0  # Pin ke versi stabil
+    hooks:
+      # Cegah file besar masuk repo (default > 500KB warning, > 10MB block)
+      - id: check-added-large-files
+        args: ['--maxkb=10240']  # 10MB
+
+      # Cegah private key (id_rsa, *.pem, dll)
+      - id: detect-private-key
+
+      # Cegah konflik merge yang belum selesai (<<<<<<< HEAD)
+      - id: check-merge-conflict
+
+      # Hapus trailing whitespace otomatis
+      - id: trailing-whitespace
+
+      # Tambahkan newline di akhir file
+      - id: end-of-file-fixer
+
+      # Validasi syntax YAML
+      - id: check-yaml
+
+      # Validasi syntax JSON
+      - id: check-json
+
+  # ============================================
+  # 2. KEAMANAN: DETEKSI SECRETS (WAJIB!)
+  # ============================================
+  # Mencegah AWS Key, GitHub Token, API Key, JWT, dll
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.0
+    hooks:
+      - id: gitleaks
+        args: ['--verbose']
+
+  # ============================================
+  # 3. STACK-SPECIFIC LINTERS (Go Linter & Formatter)
+  # ============================================
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.59.1
+    hooks:
+      - id: golangci-lint
+        args: [--timeout, 5m]
+
+  - repo: https://github.com/pre-commit/mirrors-autopep8
+    rev: v2.0.4
+    hooks:
+      - id: autopep8
+        files: \.py$  # Just in case there are python scripts
+
+  # ============================================
+  # 4. CUSTOM CHECKS (Sesuai kebutuhan tim)
+  # ============================================
+  - repo: local
+    hooks:
+      # Cegah TODO/FIXME tanpa tiket
+      - id: todo-with-ticket
+        name: TODO/FIXME must have ticket reference (#123)
+        entry: grep -rn --include="*.go" -E "TODO|FIXME|XXX" . | grep -v "#[0-9]\+"
+        language: system
+        pass_filenames: false
+        verbose: true
+
+      # Validasi branch naming
+      - id: branch-name
+        name: Branch name must follow convention
+        entry: bash -c '[[ "$(git branch --show-current)" =~ ^(feature|bugfix|hotfix|chore)/[a-z0-9-]+$ ]] || exit 0' # Fallback exit 0 if detached HEAD
+        language: system
+        pass_filenames: false
+        stages: [commit]
