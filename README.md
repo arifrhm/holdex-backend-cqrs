@@ -14,7 +14,7 @@ Features real-time ingestion from CoinGecko API, a PostgreSQL-backed Event Store
 
 ```mermaid
 flowchart TD
-    subgraph Write Side (Command)
+    subgraph "Write Side (Command)"
         CG[CoinGecko API] -->|Periodic Ingestion| Daemon[Aggregator Service]
         Daemon -->|FetchMarketDataCommand| Agg[Market Aggregate]
         Agg -->|Generate Events| ES[Event Store - Postgres]
@@ -30,7 +30,7 @@ flowchart TD
         Projector -->|Invalidate Detail Cache| RedisCache[(Redis Cache)]
     end
 
-    subgraph Read Side (Query)
+    subgraph "Read Side (Query)"
         UserGQL[GraphQL Client] -->|HTTP POST| GQL[GraphQL Server]
         UserGRPC[gRPC Client] -->|gRPC TCP| GRPC[gRPC Server]
         
