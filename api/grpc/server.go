@@ -35,7 +35,7 @@ func (s *Server) GetMarketSummaries(ctx context.Context, req *pb.GetMarketSummar
 
 	summaries, err := s.queryService.GetMarketSummaries(ctx, limit, offset)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get market summaries: %v", err)
+		return nil, status.Error(codes.Internal, "internal server error")
 	}
 
 	pbSummaries := make([]*pb.MarketSummary, len(summaries))
@@ -54,7 +54,7 @@ func (s *Server) GetMarketSummary(ctx context.Context, req *pb.GetMarketSummaryR
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, status.Errorf(codes.NotFound, "market summary not found for coin %s", req.GetCoinId())
 		}
-		return nil, status.Errorf(codes.Internal, "failed to get market summary: %v", err)
+		return nil, status.Error(codes.Internal, "internal server error")
 	}
 
 	if summary == nil {
@@ -71,7 +71,7 @@ func (s *Server) GetPriceHistory(ctx context.Context, req *pb.GetPriceHistoryReq
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, status.Errorf(codes.NotFound, "price history not found for coin %s", req.GetCoinId())
 		}
-		return nil, status.Errorf(codes.Internal, "failed to get price history: %v", err)
+		return nil, status.Error(codes.Internal, "internal server error")
 	}
 
 	pbHistory := make([]*pb.PricePoint, len(history))
@@ -91,7 +91,7 @@ func (s *Server) StreamMarketUpdates(req *pb.StreamMarketUpdatesRequest, stream 
 	ctx := stream.Context()
 	eventsChan, err := s.eventStore.Subscribe(ctx, market.NewDataFetchedEvent)
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to subscribe to events: %v", err)
+		return status.Error(codes.Internal, "internal server error")
 	}
 
 	filterCoinID := req.GetCoinId()

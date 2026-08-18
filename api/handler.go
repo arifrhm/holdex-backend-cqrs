@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
@@ -123,7 +124,7 @@ func (i *IPRateLimiter) GetLimiter(ip string) *rate.Limiter {
 }
 
 // NewHTTPHandler configures the HTTP routes including GraphQL, Playground, Metrics, and Health Check
-func NewHTTPHandler(ctx context.Context, qs *query.Service, es eventstore.EventStore, pool *pgxpool.Pool, rdb *redis.Client, rateRPS float64, rateBurst int) http.Handler {
+func NewHTTPHandler(ctx context.Context, qs *query.Service, es eventstore.EventStore, pool *pgxpool.Pool, rdb *redis.Client, rateRPS float64, rateBurst int, trustProxy bool, apiKey string) http.Handler {
 	mux := http.NewServeMux()
 
 	// GraphQL Server resolver setup
@@ -134,12 +135,15 @@ func NewHTTPHandler(ctx context.Context, qs *query.Service, es eventstore.EventS
 		},
 	}))
 
-	// Instanitate Rate Limiter using dynamic configuration values
+	// Enforce maximum query complexity limit to prevent query resource exhaustion (SEC-04)
+	gqlServer.Use(extension.FixedComplexityLimit(200))
+
+	// Instantiate Rate Limiter using dynamic configuration values
 	limiter := NewIPRateLimiter(ctx, rate.Limit(rateRPS), rateBurst)
 
 	// Versioned GraphQL Handlers
-	playgroundHandler := RateLimitMiddleware(limiter)(playground.Handler("GraphQL Playground", "/v1/query"))
-	queryHandler := RateLimitMiddleware(limiter)(graphql.DataloaderMiddleware(qs)(gqlServer))
+	playgroundHandler := RateLimitMiddleware(limiter, trustProxy)(playground.Handler("GraphQL Playground", "/v1/query"))
+	queryHandler := RateLimitMiddleware(limiter, trustProxy)(graphql.DataloaderMiddleware(qs)(gqlServer))
 
 	// Routes
 	mux.Handle("/", playgroundHandler)
@@ -156,13 +160,13 @@ func NewHTTPHandler(ctx context.Context, qs *query.Service, es eventstore.EventS
 
 		// Check Postgres
 		if err := pool.Ping(reqCtx); err != nil {
-			http.Error(w, "Database connection unhealthy: " + err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 			return
 		}
 
 		// Check Redis
 		if err := rdb.Ping(reqCtx).Err(); err != nil {
-			http.Error(w, "Redis connection unhealthy: " + err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 			return
 		}
 
@@ -196,13 +200,17 @@ func OTelTracingMiddleware(next http.Handler) http.Handler {
 }
 
 // RateLimitMiddleware enforces token-bucket rate limits per client IP address
-func RateLimitMiddleware(limiter *IPRateLimiter) func(http.Handler) http.Handler {
+func RateLimitMiddleware(limiter *IPRateLimiter, trustProxy bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := r.Header.Get("X-Forwarded-For")
-			if ip != "" {
-				parts := strings.Split(ip, ",")
-				ip = strings.TrimSpace(parts[len(parts)-1])
+			var ip string
+			// Only trust X-Forwarded-For header if explicitly enabled via configuration (SEC-02)
+			if trustProxy {
+				ip = r.Header.Get("X-Forwarded-For")
+				if ip != "" {
+					parts := strings.Split(ip, ",")
+					ip = strings.TrimSpace(parts[len(parts)-1])
+				}
 			}
 			if ip == "" {
 				var err error

@@ -125,7 +125,7 @@ func TestAPIPayloadDrift(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("GraphQL Drift Check", func(t *testing.T) {
-		handler := api.NewHTTPHandler(ctx, queryService, mockStore, pool, rdb, 1000.0, 1000)
+		handler := api.NewHTTPHandler(ctx, queryService, mockStore, pool, rdb, 1000.0, 1000, false, "")
 		ts := httptest.NewServer(handler)
 		defer ts.Close()
 

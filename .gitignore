@@ -1,0 +1,3 @@
+# Agent skills and lockfiles
+.agents/
+skills-lock.json

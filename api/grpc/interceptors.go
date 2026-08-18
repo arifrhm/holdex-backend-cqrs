@@ -8,7 +8,9 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
+	grpccodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 // OTelUnaryServerInterceptor extracts W3C traceparent context from metadata and injects it into context
@@ -96,4 +98,24 @@ func (m metadataCarrier) Keys() []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// RateLimitUnaryServerInterceptor enforces token-bucket rate limits on gRPC unary RPCs (SEC-01)
+func RateLimitUnaryServerInterceptor(limiter interface{ Allow() bool }) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		if !limiter.Allow() {
+			return nil, status.Errorf(grpccodes.ResourceExhausted, "rate limit exceeded")
+		}
+		return handler(ctx, req)
+	}
+}
+
+// RateLimitStreamServerInterceptor enforces token-bucket rate limits on gRPC streaming RPCs (SEC-01)
+func RateLimitStreamServerInterceptor(limiter interface{ Allow() bool }) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if !limiter.Allow() {
+			return status.Errorf(grpccodes.ResourceExhausted, "rate limit exceeded")
+		}
+		return handler(srv, ss)
+	}
 }

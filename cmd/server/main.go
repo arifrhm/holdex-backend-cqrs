@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
@@ -154,7 +155,8 @@ func initDatabases(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, *pgx
 
 	// Connect to Redis
 	rdb := redis.NewClient(&redis.Options{
-		Addr: cfg.RedisAddr,
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
 	})
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
@@ -227,10 +229,19 @@ func startBackgroundDaemons(ctx context.Context, wg *sync.WaitGroup, outboxPubli
 }
 
 func startServers(ctx context.Context, cfg *config.Config, queryService *query.Service, store eventstore.EventStore, readPool *pgxpool.Pool, rdb *redis.Client) (*http.Server, *grpc.Server, error) {
-	// Start gRPC Server
+	// Instantiate Rate Limiter for gRPC and HTTP
+	grpcLimiter := api.NewIPRateLimiter(ctx, rate.Limit(cfg.RateLimitRPS), cfg.RateLimitBurst)
+
+	// Start gRPC Server with Rate Limiting (SEC-01) and Tracing
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(grpcapi.OTelUnaryServerInterceptor()),
-		grpc.StreamInterceptor(grpcapi.OTelStreamServerInterceptor()),
+		grpc.ChainUnaryInterceptor(
+			grpcapi.OTelUnaryServerInterceptor(),
+			grpcapi.RateLimitUnaryServerInterceptor(grpcLimiter.GetLimiter("grpc-global")),
+		),
+		grpc.ChainStreamInterceptor(
+			grpcapi.OTelStreamServerInterceptor(),
+			grpcapi.RateLimitStreamServerInterceptor(grpcLimiter.GetLimiter("grpc-global")),
+		),
 	)
 	grpcSrvImpl := grpcapi.NewServer(queryService, store)
 	pb.RegisterMarketServiceServer(grpcServer, grpcSrvImpl)
@@ -249,7 +260,7 @@ func startServers(ctx context.Context, cfg *config.Config, queryService *query.S
 	}()
 
 	// Start HTTP Server (GraphQL + Playground + Healthz)
-	httpHandler := api.NewHTTPHandler(ctx, queryService, store, readPool, rdb, cfg.RateLimitRPS, cfg.RateLimitBurst)
+	httpHandler := api.NewHTTPHandler(ctx, queryService, store, readPool, rdb, cfg.RateLimitRPS, cfg.RateLimitBurst, cfg.TrustProxy, cfg.APIKey)
 	httpServer := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: httpHandler,

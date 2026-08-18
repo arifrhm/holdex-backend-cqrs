@@ -23,6 +23,9 @@ type Config struct {
 	DBMaxConnIdleTime     time.Duration
 	RateLimitRPS          float64
 	RateLimitBurst        int
+	TrustProxy            bool
+	APIKey                string
+	RedisPassword         string
 	CoinGeckoAPIKey       string
 	CoinGeckoCoins        []string
 }
@@ -65,6 +68,10 @@ func Load() *Config {
 		rateBurst = 10
 	}
 
+	trustProxy := getEnv("TRUST_PROXY", "false") == "true"
+	apiKey := getEnv("API_KEY", "")
+	redisPassword := getEnv("REDIS_PASSWORD", "")
+
 	cgAPIKey := getEnv("COINGECKO_API_KEY", "")
 	coinsStr := getEnv("COINGECKO_COINS", "bitcoin,ethereum,cardano,solana,ripple")
 	coins := strings.Split(coinsStr, ",")
@@ -86,6 +93,9 @@ func Load() *Config {
 		DBMaxConnIdleTime:     idleTime,
 		RateLimitRPS:          rateRPS,
 		RateLimitBurst:        rateBurst,
+		TrustProxy:            trustProxy,
+		APIKey:                apiKey,
+		RedisPassword:         redisPassword,
 		CoinGeckoAPIKey:       cgAPIKey,
 		CoinGeckoCoins:        coins,
 	}

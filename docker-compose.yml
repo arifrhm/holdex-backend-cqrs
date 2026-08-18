@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: holdex_password
       POSTGRES_DB: holdex_db
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,12 +19,13 @@ services:
   redis:
     image: redis:7-alpine
     container_name: holdex_redis
+    command: redis-server --requirepass holdex_redis_password
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "holdex_redis_password", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -35,12 +36,14 @@ services:
       dockerfile: Dockerfile
     container_name: holdex_app
     ports:
-      - "8080:8080"
-      - "9090:9090"
+      - "8081:8080"
+      - "9091:9090"
     environment:
       - DB_DSN=postgres://holdex_user:holdex_password@postgres:5432/holdex_db?sslmode=disable
       - DB_DSN_READ=postgres://holdex_user:holdex_password@postgres:5432/holdex_db?sslmode=disable
       - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=holdex_redis_password
+      - TRUST_PROXY=false
       - PORT=8080
       - GRPC_PORT=9090
       - COINGECKO_POLL_INTERVAL=60s
