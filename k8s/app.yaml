@@ -6,6 +6,7 @@ data:
   PORT: "8080"
   GRPC_PORT: "9090"
   REDIS_ADDR: "redis:6379"
+  REDIS_PASSWORD: "holdex_redis_password"
   COINGECKO_POLL_INTERVAL: "60s"
   LOG_LEVEL: "info"
 ---
@@ -35,17 +36,6 @@ spec:
       labels:
         app: holdex-app
     spec:
-      initContainers:
-        - name: migrations
-          image: holdex-app:latest
-          imagePullPolicy: IfNotPresent
-          command: ["/app/migrate", "up"]
-          env:
-            - name: DB_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: app-secret
-                  key: DB_DSN
       containers:
         - name: app
           image: holdex-app:latest
@@ -60,7 +50,7 @@ spec:
                   name: app-secret
                   key: DB_DSN
             - name: SKIP_MIGRATIONS
-              value: "true"
+              value: "false"
           ports:
             - containerPort: 8080
               name: http

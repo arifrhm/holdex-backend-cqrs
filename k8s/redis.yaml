@@ -18,17 +18,18 @@ spec:
         - name: redis
           image: redis:7-alpine
           imagePullPolicy: IfNotPresent
+          args: ["redis-server", "--requirepass", "holdex_redis_password"]
           ports:
             - containerPort: 6379
               name: redis
           readinessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["redis-cli", "-a", "holdex_redis_password", "ping"]
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["redis-cli", "-a", "holdex_redis_password", "ping"]
             initialDelaySeconds: 10
             periodSeconds: 10
 ---
